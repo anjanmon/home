@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Bot Assistant</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        #chat-container {
+            background-color: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        #conversation {
+            height: 400px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+        .user-message {
+            background-color: #e6f2ff;
+            text-align: right;
+            align-self: flex-end;
+        }
+        .bot-message {
+            background-color: #f0f0f0;
+            text-align: left;
+            align-self: flex-start;
+        }
+        #voice-input {
+            width: calc(100% - 80px);
+            padding: 10px;
+            margin-right: 5px;
+        }
+        #send-btn, #record-btn {
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #send-btn {
+            background-color: #007bff;
+            color: white;
+        }
+        #record-btn {
+            background-color: #4CAF50;
+            color: white;
+            margin-top: 10px;
+        }
+        #record-btn.recording {
+            background-color: #f44336;
+        }
+        #status {
+            text-align: center;
+            color: #666;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div id="chat-container">
+        <div id="conversation"></div>
+        <div id="status"></div>
+        <input type="text" id="voice-input" placeholder="Type or speak your message...">
+        <button id="send-btn">Send</button>
+        <button id="record-btn">🎙️ Start Recording</button>
+        <audio id="response-audio"></audio>
+    </div>
+
+    <script>
+        const conversationDiv = document.getElementById('conversation');
+        const voiceInput = document.getElementById('voice-input');
+        const sendBtn = document.getElementById('send-btn');
+        const recordBtn = document.getElementById('record-btn');
+        const statusDiv = document.getElementById('status');
+        const responseAudio = document.getElementById('response-audio');
+
+        let mediaRecorder;
+        let audioChunks = [];
+
+        // Function to send text message to backend
+        function sendMessage() {
+            const message = voiceInput.value.trim();
+            if (!message) return;
+
+            // Display user message
+            const userMessageEl = document.createElement('div');
+            userMessageEl.classList.add('message', 'user-message');
+            userMessageEl.textContent = message;
+            conversationDiv.appendChild(userMessageEl);
+
+            // Send to server
+            fetch('/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message })
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Display bot response
+                const botMessageEl = document.createElement('div');
+                botMessageEl.classList.add('message', 'bot-message');
+                botMessageEl.textContent = data.reply;
+                conversationDiv.appendChild(botMessageEl);
+
+                // Fetch and play bot's audio response
+                fetch(`/get_audio?message=${encodeURIComponent(data.reply)}`)
+                .then(audioResponse => audioResponse.blob())
+                .then(blob => {
+                    const audioUrl = URL.createObjectURL(blob);
+                    responseAudio.src = audioUrl;
+                    responseAudio.play();
+                });
+
+                // Scroll to bottom
+                conversationDiv.scrollTop = conversationDiv.scrollHeight;
+            });
+
+            // Clear input
+            voiceInput.value = '';
+        }
+
+        // Function to handle voice recording
+        async function toggleRecording() {
+            if (!mediaRecorder || mediaRecorder.state === "inactive") {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+
+                    mediaRecorder.ondataavailable = event => {
+                        audioChunks.push(event.data);
+                    };
+
+                    mediaRecorder.onstop = async () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                        const formData = new FormData();
+                        formData.append('audio', audioBlob);
+
+                        // Send audio to backend for speech recognition
+                        fetch('/speech-to-text', {
+                            method: 'POST',
+                            body: formData
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            voiceInput.value = data.transcript;
+                            sendMessage(); // Auto-send the recognized text
+                        })
+                        .catch(error => console.error('Speech recognition error:', error));
+                    };
+
+                    mediaRecorder.start();
+                    recordBtn.textContent = '🛑 Stop Recording';
+                    recordBtn.classList.add('recording');
+                } catch (error) {
+                    console.error('Microphone access denied:', error);
+                }
+            } else {
+                mediaRecorder.stop();
+                recordBtn.textContent = '🎙️ Start Recording';
+                recordBtn.classList.remove('recording');
+            }
+        }
+
+        // Event listeners
+        sendBtn.addEventListener('click', sendMessage);
+        voiceInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+        recordBtn.addEventListener('click', toggleRecording);
+    </script>
+</body>
+</html>
