@@ -1,6 +1,5 @@
 import os
 import io
-import wave
 from flask import Flask, render_template, request, jsonify, send_file
 import google.generativeai as genai
 import speech_recognition as sr
@@ -94,4 +93,4 @@ def get_audio():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=False)
